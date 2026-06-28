@@ -1,4 +1,4 @@
-# dwim plugin API
+# dwiw plugin API
 
 Plugins are ESM modules exporting `default` or `plugin` with this shape:
 
@@ -11,8 +11,8 @@ export default {
 };
 ```
 
-Load plugins with `DWIM_PLUGINS=/absolute/plugin-a.ts:/absolute/plugin-b.ts dwim`.
+Load plugins with `DWIW_PLUGINS=/absolute/plugin-a.ts:/absolute/plugin-b.ts dwiw`.
 
 Built-ins:
 - `shell-context`: injects cwd, recent history, redacted/capped last output.
-- `memory`: stores explicit `remember ...` facts in `~/.dwim/memory.json`.
+- `memory`: stores explicit `remember ...` facts in `~/.dwiw/memory.json`.

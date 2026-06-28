@@ -8,7 +8,7 @@ test("brain sidecar answers a prompt over the rpc protocol", async () => {
 			stdin: "pipe",
 			stdout: "pipe",
 			stderr: "inherit",
-			env: { ...process.env, DWIM_PROVIDER: "", DWIM_MODEL: "" },
+			env: { ...process.env, DWIW_PROVIDER: "", DWIW_MODEL: "" },
 		},
 	);
 

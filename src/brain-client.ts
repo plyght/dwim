@@ -19,8 +19,8 @@ export function createBrainClient(options: BrainClientOptions = {}): Brain {
 		{
 			env: {
 				...process.env,
-				DWIM_PROVIDER: options.provider ?? "",
-				DWIM_MODEL: options.model ?? "",
+				DWIW_PROVIDER: options.provider ?? "",
+				DWIW_MODEL: options.model ?? "",
 			},
 			stdin: "pipe",
 			stdout: "pipe",

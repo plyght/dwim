@@ -3,10 +3,10 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 // pi-ai ships the OpenAI Codex OAuth flow but no persistent credential store,
-// so we own storage: a JSON file at ~/.dwim/auth.json holding the rotating
+// so we own storage: a JSON file at ~/.dwiw/auth.json holding the rotating
 // access/refresh tokens. The oauth module is imported lazily so the overlay's
 // hot path (which only needs isLoggedIn) never pulls in node:http/crypto.
-const DIR = join(Bun.env.HOME ?? ".", ".dwim");
+const DIR = join(Bun.env.HOME ?? ".", ".dwiw");
 const AUTH_PATH = join(DIR, "auth.json");
 const PROVIDER = "openai-codex";
 
@@ -53,7 +53,7 @@ export async function getCodexToken(): Promise<string | null> {
 
 export async function runLogin() {
 	const { loginOpenAICodex } = await import("@earendil-works/pi-ai/oauth");
-	console.log("dwim: signing in to OpenAI Codex…");
+	console.log("dwiw: signing in to OpenAI Codex…");
 	try {
 		const creds = (await loginOpenAICodex({
 			onAuth: ({ url }: { url: string }) => {
@@ -69,10 +69,10 @@ export async function runLogin() {
 			},
 		})) as CodexCreds;
 		await saveCreds(creds);
-		console.log("dwim: logged in. Codex is now the default — run `dwim`.");
+		console.log("dwiw: logged in. Codex is now the default — run `dwiw`.");
 	} catch (error) {
 		console.error(
-			`dwim: login failed — ${error instanceof Error ? error.message : String(error)}`,
+			`dwiw: login failed — ${error instanceof Error ? error.message : String(error)}`,
 		);
 		process.exitCode = 1;
 	}
@@ -82,7 +82,7 @@ export async function runLogout() {
 	try {
 		rmSync(AUTH_PATH, { force: true });
 	} catch {}
-	console.log("dwim: logged out of OpenAI Codex.");
+	console.log("dwiw: logged out of OpenAI Codex.");
 }
 
 function openBrowser(url: string) {

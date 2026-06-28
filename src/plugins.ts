@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ShellContext } from "./protocol";
 
-export type DwimPlugin = {
+export type DwiwPlugin = {
 	name: string;
 	injectContext?: (
 		context: ShellContext,
@@ -17,8 +17,8 @@ export type DwimPlugin = {
 	postProcessProposal?: (command: string) => string | Promise<string>;
 };
 
-export async function loadPlugins(paths: string[]): Promise<DwimPlugin[]> {
-	const plugins: DwimPlugin[] = [shellContextPlugin(), memoryPlugin()];
+export async function loadPlugins(paths: string[]): Promise<DwiwPlugin[]> {
+	const plugins: DwiwPlugin[] = [shellContextPlugin(), memoryPlugin()];
 	for (const path of paths) {
 		const mod = await import(path);
 		const plugin = mod.default ?? mod.plugin;
@@ -29,7 +29,7 @@ export async function loadPlugins(paths: string[]): Promise<DwimPlugin[]> {
 
 export async function buildContext(
 	context: ShellContext,
-	plugins: DwimPlugin[],
+	plugins: DwiwPlugin[],
 ): Promise<ShellContext> {
 	let memory: string[] = [];
 	for (const plugin of plugins) {
@@ -46,7 +46,7 @@ export async function buildContext(
 	};
 }
 
-function shellContextPlugin(): DwimPlugin {
+function shellContextPlugin(): DwiwPlugin {
 	return {
 		name: "shell-context",
 		injectContext(context) {
@@ -60,8 +60,8 @@ function shellContextPlugin(): DwimPlugin {
 	};
 }
 
-function memoryPlugin(): DwimPlugin {
-	const dir = join(Bun.env.HOME ?? ".", ".dwim");
+function memoryPlugin(): DwiwPlugin {
+	const dir = join(Bun.env.HOME ?? ".", ".dwiw");
 	const file = join(dir, "memory.json");
 	return {
 		name: "memory",

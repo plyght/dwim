@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { isLoggedIn } from "./auth";
 
-export type DwimConfig = {
+export type DwiwConfig = {
 	proposalUx: "inline" | "menu";
 	autoRun: boolean;
 	destructiveGuard: boolean;
@@ -14,26 +14,26 @@ export type DwimConfig = {
 const CODEX_MODEL = "gpt-5.4-mini";
 const ANTHROPIC_MODEL = "claude-haiku-4-5";
 
-export async function loadConfig(): Promise<DwimConfig> {
-	const defaults: DwimConfig = {
+export async function loadConfig(): Promise<DwiwConfig> {
+	const defaults: DwiwConfig = {
 		proposalUx: "inline",
 		autoRun: true,
 		destructiveGuard: true,
 		confirmAll: false,
-		provider: Bun.env.DWIM_PROVIDER ?? "",
-		model: Bun.env.DWIM_MODEL ?? "",
-		plugins: (Bun.env.DWIM_PLUGINS ?? "").split(":").filter(Boolean),
+		provider: Bun.env.DWIW_PROVIDER ?? "",
+		model: Bun.env.DWIW_MODEL ?? "",
+		plugins: (Bun.env.DWIW_PLUGINS ?? "").split(":").filter(Boolean),
 	};
 	let config = defaults;
 	try {
 		const file = await Bun.file(
-			join(Bun.env.HOME ?? ".", ".dwim", "config.json"),
+			join(Bun.env.HOME ?? ".", ".dwiw", "config.json"),
 		).json();
 		config = { ...defaults, ...file };
 	} catch {}
 
 	// When no provider is pinned, pick one automatically: Codex once signed in
-	// (so `dwim login` is all it takes), else Anthropic if a key is present,
+	// (so `dwiw login` is all it takes), else Anthropic if a key is present,
 	// else nothing — which falls back to the offline heuristic.
 	if (!config.provider) {
 		if (await isLoggedIn()) {
@@ -47,7 +47,7 @@ export async function loadConfig(): Promise<DwimConfig> {
 	return config;
 }
 
-export function needsConfirm(command: string, config: DwimConfig) {
+export function needsConfirm(command: string, config: DwiwConfig) {
 	if (config.confirmAll) return true;
 	return (
 		config.destructiveGuard &&

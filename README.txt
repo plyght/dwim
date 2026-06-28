@@ -30,7 +30,7 @@ Check:
 
 Config:
 
-    ~/.dwim/config.json
+    ~/.dwiw/config.json
 
 Example:
 

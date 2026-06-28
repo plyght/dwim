@@ -11,7 +11,7 @@ export async function runOverlay() {
 	const shell = Bun.env.SHELL ?? "/bin/sh";
 	if (!Bun.which("script")) {
 		console.error(
-			"dwim: the 'script' command is required to wrap your shell but was not found.",
+			"dwiw: the 'script' command is required to wrap your shell but was not found.",
 		);
 		process.exit(1);
 	}
@@ -129,7 +129,7 @@ export async function runOverlay() {
 			if (decision.kind === "ambiguous" && pendingRun !== line) {
 				pendingRun = line;
 				process.stdout.write(
-					`\n⚠ dwim: ambiguous — Enter again to run as a command, or edit the line.\n`,
+					`\n⚠ dwiw: ambiguous — Enter again to run as a command, or edit the line.\n`,
 				);
 				return;
 			}
@@ -156,7 +156,7 @@ export async function runOverlay() {
 				if (decision.mode === "agent") {
 					const job = jobs.start(decision.line);
 					line = "";
-					process.stdout.write(`[dwim ${job.id}] started\n`);
+					process.stdout.write(`[dwiw ${job.id}] started\n`);
 					brain
 						.ask(request, async (event) => {
 							if (event.type === "text") jobs.append(job.id, event.text);
@@ -165,14 +165,14 @@ export async function runOverlay() {
 							if (event.type === "done") {
 								jobs.finish(job.id);
 								process.stdout.write(
-									`\n[dwim ${job.id}] done; run dwim fg ${job.id}\n`,
+									`\n[dwiw ${job.id}] done; run dwiw fg ${job.id}\n`,
 								);
 							}
 						})
 						.catch((error) => {
 							jobs.finish(job.id, "error");
 							process.stdout.write(
-								`\n[dwim ${job.id}] error: ${error instanceof Error ? error.message : String(error)}\n`,
+								`\n[dwiw ${job.id}] error: ${error instanceof Error ? error.message : String(error)}\n`,
 							);
 						});
 					return;
@@ -189,14 +189,14 @@ export async function runOverlay() {
 						} else {
 							if (guard)
 								process.stdout.write(
-									`⚠ dwim: review this command before running.\n`,
+									`⚠ dwiw: review this command before running.\n`,
 								);
 							line = command;
 							writeChild(line);
 						}
 					}
 					if (event.type === "error")
-						process.stdout.write(`dwim error: ${event.message}\n`);
+						process.stdout.write(`dwiw error: ${event.message}\n`);
 				});
 				return;
 			}
@@ -217,7 +217,7 @@ function handleInternalCommand(
 	write: (data: string) => void,
 ) {
 	const trimmed = line.trim();
-	if (trimmed === "dwim jobs") {
+	if (trimmed === "dwiw jobs") {
 		write("\u0015");
 		process.stdout.write(
 			`\r\n${jobs
@@ -227,11 +227,11 @@ function handleInternalCommand(
 		);
 		return true;
 	}
-	const match = trimmed.match(/^dwim fg (\d+)$/);
+	const match = trimmed.match(/^dwiw fg (\d+)$/);
 	if (match) {
 		write("\u0015");
 		const job = jobs.get(Number(match[1]));
-		process.stdout.write(`\r\n${job?.output ?? "no such dwim job"}\n`);
+		process.stdout.write(`\r\n${job?.output ?? "no such dwiw job"}\n`);
 		return true;
 	}
 	return false;

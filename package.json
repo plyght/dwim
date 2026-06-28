@@ -1,11 +1,11 @@
 {
-	"name": "dwim",
+	"name": "dwiw",
 	"version": "0.1.0",
-	"description": "Shell-agnostic DWIM overlay with deterministic routing and a pi-composed brain adapter.",
+	"description": "Shell-agnostic DWIW overlay with deterministic routing and a pi-composed brain adapter.",
 	"license": "MIT",
 	"type": "module",
 	"bin": {
-		"dwim": "./src/cli.ts"
+		"dwiw": "./src/cli.ts"
 	},
 	"scripts": {
 		"dev": "bun run src/cli.ts",

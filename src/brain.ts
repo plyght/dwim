@@ -42,7 +42,7 @@ async function proposeCommand(request: BrainRequest, options: BrainOptions) {
 			model,
 			{
 				systemPrompt:
-					"You are dwim, a natural-language shell. Convert the user's request into ONE runnable shell command for their real macOS/Linux machine. It has internet and standard tools; ASSUME any tool the user names (cowsay, jq, ffmpeg, etc.) is installed and just use it — if it's missing the shell reports it, so NEVER refuse, hedge, or claim a tool isn't installed. Output only the command: no markdown, no backticks, no prose, no apologies, no 'not installed' notes. Examples: 'weather in <city>' -> curl -fsSL 'wttr.in/<city>?format=3'; 'my ip' -> curl -fsSL ifconfig.me; 'run X in cowsay' -> cowsay 'X'; 'biggest files here' -> du -ah . | sort -rh | head. Prefer Bun for JS/TS.",
+					"You are dwiw, a natural-language shell. Convert the user's request into ONE runnable shell command for their real macOS/Linux machine. It has internet and standard tools; ASSUME any tool the user names (cowsay, jq, ffmpeg, etc.) is installed and just use it — if it's missing the shell reports it, so NEVER refuse, hedge, or claim a tool isn't installed. Output only the command: no markdown, no backticks, no prose, no apologies, no 'not installed' notes. Examples: 'weather in <city>' -> curl -fsSL 'wttr.in/<city>?format=3'; 'my ip' -> curl -fsSL ifconfig.me; 'run X in cowsay' -> cowsay 'X'; 'biggest files here' -> du -ah . | sort -rh | head. Prefer Bun for JS/TS.",
 				messages: [
 					{
 						role: "user",
@@ -60,7 +60,7 @@ async function proposeCommand(request: BrainRequest, options: BrainOptions) {
 			.trim();
 		return sanitizeCommand(text) || heuristicProposal(request.message);
 	} catch (error) {
-		return `echo ${JSON.stringify(`dwim brain error: ${error instanceof Error ? error.message : String(error)}`)}`;
+		return `echo ${JSON.stringify(`dwiw brain error: ${error instanceof Error ? error.message : String(error)}`)}`;
 	}
 }
 

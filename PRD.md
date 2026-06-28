@@ -1,6 +1,6 @@
-# dwim — Product Requirements Document
+# dwiw — Product Requirements Document
 
-> **Name:** `dwim` — *do what I mean*. The classic Unix/Lisp term for a system that infers your intent instead of taking you literally.
+> **Name:** `dwiw` — *do what I want*. The classic Unix/Lisp term for a system that infers your intent instead of taking you literally.
 > **Status:** design locked.
 > **One-liner:** A shell-agnostic overlay that lets you type normal commands *or* natural language on the same line — commands run instantly and natively, natural language is handled by an AI agent — with no mode switch and no required prefix. As instant as a normal shell.
 
@@ -8,7 +8,7 @@
 
 ## 1. Vision & thesis
 
-Today you either use a shell (fast, native, no intelligence) or an AI tool (intelligent, but a separate mode/app/prefix you opt into). `dwim` collapses them into **one input line**:
+Today you either use a shell (fast, native, no intelligence) or an AI tool (intelligent, but a separate mode/app/prefix you opt into). `dwiw` collapses them into **one input line**:
 
 - Type `ls`, `git status`, `z foo` → resolves and execs **natively, instantly, model never consulted.**
 - Type `Summarize the big files here` or `why did that fail?` → routed to an AI agent that proposes (or performs) the work.
@@ -22,7 +22,7 @@ We surveyed 8 existing implementations (butterfish, nl-sh, aichat, shell_gpt, op
 - **Nobody routes on capability resolution.** Everyone routes on an explicit signal: orthography (butterfish), a `.`/flag/hotkey (aichat/shell_gpt/ai-shell), or an always-on LLM (yai). Routing on *whether the token actually resolves* is the unclaimed insight.
 - **Nobody auto-escalates local↔cloud.** All treat model choice as static config.
 
-**Closest prior art: butterfish** (MIT, Go) — a real PTY overlay with a free router and a real agent loop. It got the *architecture* right but routes on a crude orthographic trick (uppercase first letter) instead of capability resolution, and is OpenAI-only. **`dwim` is butterfish's category, done with a real resolution-based router and a model-agnostic, pluggable brain.** Butterfish is our plumbing + UX reference.
+**Closest prior art: butterfish** (MIT, Go) — a real PTY overlay with a free router and a real agent loop. It got the *architecture* right but routes on a crude orthographic trick (uppercase first letter) instead of capability resolution, and is OpenAI-only. **`dwiw` is butterfish's category, done with a real resolution-based router and a model-agnostic, pluggable brain.** Butterfish is our plumbing + UX reference.
 
 ---
 
@@ -51,7 +51,7 @@ We surveyed 8 existing implementations (butterfish, nl-sh, aichat, shell_gpt, op
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  dwim OVERLAY  (Bun; C for hot path if needed)                │
+│  dwiw OVERLAY  (Bun; C for hot path if needed)                │
 │                                                                │
 │  • spawns user's $SHELL (fish/zsh/bash) as a child over a PTY  │
 │  • intercepts stdin/stdout, buffers history + last output      │
@@ -69,7 +69,7 @@ We surveyed 8 existing implementations (butterfish, nl-sh, aichat, shell_gpt, op
 └────────────────────┼───────────────────────────────────────────┘
                      ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  dwim BRAIN  (Bun; composed from pi packages)                 │
+│  dwiw BRAIN  (Bun; composed from pi packages)                 │
 │  • pi-ai          → multi-provider LLM client (cloud v1)       │
 │  • pi-agent-core  → plan-execute-observe loop                  │
 │  • coding-agent   → selected tools (bash, read, edit, …)       │

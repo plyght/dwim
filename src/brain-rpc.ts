@@ -6,8 +6,8 @@ import type { BrainRequest } from "./protocol";
 // stdin, streams `{ id, event }` JSON lines on stdout. Requests run
 // concurrently so a backgrounded agent never blocks a one-shot proposal.
 const brain = createBrain({
-	provider: Bun.env.DWIM_PROVIDER || undefined,
-	model: Bun.env.DWIM_MODEL || undefined,
+	provider: Bun.env.DWIW_PROVIDER || undefined,
+	model: Bun.env.DWIW_MODEL || undefined,
 });
 
 function send(id: number, event: unknown) {

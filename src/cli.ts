@@ -14,10 +14,10 @@ if (command === "logout") {
 if (command === "--help" || command === "-h") {
 	console.log(
 		[
-			"dwim — talk to your shell",
-			"  dwim          start the shell overlay",
-			"  dwim login    sign in to OpenAI Codex (OAuth)",
-			"  dwim logout   remove saved Codex credentials",
+			"dwiw — talk to your shell",
+			"  dwiw          start the shell overlay",
+			"  dwiw login    sign in to OpenAI Codex (OAuth)",
+			"  dwiw logout   remove saved Codex credentials",
 			"  inside the shell: !!text forces intent, ::command forces a command",
 		].join("\n"),
 	);
