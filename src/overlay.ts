@@ -9,6 +9,12 @@ import { routeLine } from "./router";
 
 export async function runOverlay() {
 	const shell = Bun.env.SHELL ?? "/bin/sh";
+	if (!Bun.which("script")) {
+		console.error(
+			"dwim: the 'script' command is required to wrap your shell but was not found.",
+		);
+		process.exit(1);
+	}
 	const table = await createResolutionTable();
 	const config = await loadConfig();
 	const brain = createBrainClient({
@@ -27,13 +33,22 @@ export async function runOverlay() {
 		process.stdout.rows ?? 24,
 		process.stdout.columns ?? 80,
 	);
-	const child = Bun.spawn([shell], {
-		cwd: process.cwd(),
-		env: { ...process.env, TERM: process.env.TERM ?? "xterm-256color" },
-		stdin: slave,
-		stdout: slave,
-		stderr: slave,
-	});
+	// Run the shell under `script` so it gets a real *controlling* terminal
+	// (setsid + login_tty): job control, tcsetpgrp, and multiplexers like
+	// herdr/tmux all need this. We hand `script` the pty slave — a genuine tty,
+	// so its tcgetattr succeeds where a pipe failed — and drive the master end.
+	const child = Bun.spawn(
+		process.platform === "linux"
+			? ["script", "-qfc", shell, "/dev/null"]
+			: ["script", "-q", "/dev/null", shell],
+		{
+			cwd: process.cwd(),
+			env: { ...process.env, TERM: process.env.TERM ?? "xterm-256color" },
+			stdin: slave,
+			stdout: slave,
+			stderr: slave,
+		},
+	);
 	closeSync(slave);
 	const writeChild = (data: string) => {
 		writeSync(master, data);

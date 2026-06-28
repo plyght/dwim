@@ -1,10 +1,9 @@
 import { dlopen, FFIType, ptr } from "bun:ffi";
 
 // openpty lives in libutil; on macOS those symbols are re-exported from
-// libSystem. We bind it via FFI so the child shell gets a genuine tty on its
-// stdio — interactive mode, line editing, colors — while we drive the master
-// end. This replaces the brittle `script` wrapper, which cannot work once we
-// pipe stdin for interception (it tcgetattr's its own stdin and fails).
+// libSystem. We bind it via FFI to allocate a real tty pair: the slave is
+// handed to `script` (so its tcgetattr succeeds — a pipe made it fail), and we
+// drive the master end while `script` gives the shell a controlling terminal.
 const libName =
 	process.platform === "darwin" ? "libSystem.dylib" : "libutil.so.1";
 
