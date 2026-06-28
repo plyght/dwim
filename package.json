@@ -1,0 +1,27 @@
+{
+	"name": "dwim",
+	"version": "0.1.0",
+	"description": "Shell-agnostic DWIM overlay with deterministic routing and a pi-composed brain adapter.",
+	"license": "MIT",
+	"type": "module",
+	"bin": {
+		"dwim": "./src/cli.ts"
+	},
+	"scripts": {
+		"dev": "bun run src/cli.ts",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check .",
+		"format": "biome format --write .",
+		"check": "bun run typecheck && bun run lint && bun test"
+	},
+	"dependencies": {
+		"@earendil-works/pi-agent-core": "0.80.2",
+		"@earendil-works/pi-ai": "0.80.2"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.1",
+		"@types/bun": "1.3.14",
+		"typescript": "5.9.3"
+	}
+}
