@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isLoggedIn } from "./auth";
 
 export type DwimConfig = {
 	proposalUx: "inline" | "menu";
@@ -11,6 +11,9 @@ export type DwimConfig = {
 	plugins: string[];
 };
 
+const CODEX_MODEL = "gpt-5.4";
+const ANTHROPIC_MODEL = "claude-haiku-4-5";
+
 export async function loadConfig(): Promise<DwimConfig> {
 	const defaults: DwimConfig = {
 		proposalUx: "inline",
@@ -21,15 +24,27 @@ export async function loadConfig(): Promise<DwimConfig> {
 		model: Bun.env.DWIM_MODEL ?? "",
 		plugins: (Bun.env.DWIM_PLUGINS ?? "").split(":").filter(Boolean),
 	};
+	let config = defaults;
 	try {
-		const file = await readFile(
+		const file = await Bun.file(
 			join(Bun.env.HOME ?? ".", ".dwim", "config.json"),
-			"utf8",
-		);
-		return { ...defaults, ...JSON.parse(file) };
-	} catch {
-		return defaults;
+		).json();
+		config = { ...defaults, ...file };
+	} catch {}
+
+	// When no provider is pinned, pick one automatically: Codex once signed in
+	// (so `dwim login` is all it takes), else Anthropic if a key is present,
+	// else nothing — which falls back to the offline heuristic.
+	if (!config.provider) {
+		if (await isLoggedIn()) {
+			config.provider = "openai-codex";
+			config.model ||= CODEX_MODEL;
+		} else if (Bun.env.ANTHROPIC_API_KEY) {
+			config.provider = "anthropic";
+			config.model ||= ANTHROPIC_MODEL;
+		}
 	}
+	return config;
 }
 
 export function needsConfirm(command: string, config: DwimConfig) {

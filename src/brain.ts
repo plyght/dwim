@@ -1,5 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { completeSimple, getModel } from "@earendil-works/pi-ai/compat";
+import { getCodexToken } from "./auth";
 import type { BrainEvent, BrainRequest } from "./protocol";
 
 export type Brain = {
@@ -28,6 +29,14 @@ export function createBrain(options: BrainOptions = {}): Brain {
 async function proposeCommand(request: BrainRequest, options: BrainOptions) {
 	const model = resolveModel(options);
 	if (!model) return heuristicProposal(request.message);
+	const streamOptions: { maxTokens: number; apiKey?: string } = {
+		maxTokens: 200,
+	};
+	if (options.provider === "openai-codex") {
+		const token = await getCodexToken();
+		if (!token) return heuristicProposal(request.message);
+		streamOptions.apiKey = token;
+	}
 	try {
 		const response = await completeSimple(
 			model,
@@ -42,7 +51,7 @@ async function proposeCommand(request: BrainRequest, options: BrainOptions) {
 					},
 				],
 			},
-			{ maxTokens: 200 },
+			streamOptions,
 		);
 		const text = response.content
 			.filter((item) => item.type === "text")
