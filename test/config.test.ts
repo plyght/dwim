@@ -3,6 +3,7 @@ import { needsConfirm } from "../src/config";
 
 const config = {
 	proposalUx: "inline" as const,
+	autoRun: false,
 	destructiveGuard: true,
 	confirmAll: false,
 	provider: "",

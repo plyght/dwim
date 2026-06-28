@@ -181,12 +181,19 @@ export async function runOverlay() {
 					if (event.type === "text") process.stdout.write(event.text);
 					if (event.type === "proposal") {
 						const command = await applyPostProcess(event.command, plugins);
-						if (needsConfirm(command, config))
-							process.stdout.write(
-								`⚠ dwim: review this command before running.\n`,
-							);
-						line = command;
-						writeChild(line);
+						const guard = needsConfirm(command, config);
+						if (config.autoRun && !guard) {
+							// One Enter: generate AND run. No second keystroke.
+							line = "";
+							writeChild(`${command}\r`);
+						} else {
+							if (guard)
+								process.stdout.write(
+									`⚠ dwim: review this command before running.\n`,
+								);
+							line = command;
+							writeChild(line);
+						}
 					}
 					if (event.type === "error")
 						process.stdout.write(`dwim error: ${event.message}\n`);

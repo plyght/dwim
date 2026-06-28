@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 export type DwimConfig = {
 	proposalUx: "inline" | "menu";
+	autoRun: boolean;
 	destructiveGuard: boolean;
 	confirmAll: boolean;
 	provider: string;
@@ -13,7 +14,8 @@ export type DwimConfig = {
 export async function loadConfig(): Promise<DwimConfig> {
 	const defaults: DwimConfig = {
 		proposalUx: "inline",
-		destructiveGuard: false,
+		autoRun: true,
+		destructiveGuard: true,
 		confirmAll: false,
 		provider: Bun.env.DWIM_PROVIDER ?? "",
 		model: Bun.env.DWIM_MODEL ?? "",
