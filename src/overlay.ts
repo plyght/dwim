@@ -1,18 +1,14 @@
+import { closeSync, read, writeSync } from "node:fs";
 import { createBrainClient } from "./brain-client";
 import { loadConfig, needsConfirm } from "./config";
 import { AgentJobs } from "./jobs";
 import { buildContext, loadPlugins } from "./plugins";
+import { openPty } from "./pty";
 import { createResolutionTable } from "./resolution";
 import { routeLine } from "./router";
 
 export async function runOverlay() {
 	const shell = Bun.env.SHELL ?? "/bin/sh";
-	if (!Bun.which("script")) {
-		console.error(
-			"dwim: the 'script' command is required to wrap your shell but was not found.",
-		);
-		process.exit(1);
-	}
 	const table = await createResolutionTable();
 	const config = await loadConfig();
 	const brain = createBrainClient({
@@ -27,24 +23,61 @@ export async function runOverlay() {
 	let childActive = false;
 	let pendingRun: string | null = null;
 
-	const child = Bun.spawn(
-		process.platform === "linux"
-			? ["script", "-qfc", shell, "/dev/null"]
-			: ["script", "-q", "/dev/null", shell],
-		{
-			cwd: process.cwd(),
-			env: process.env,
-			stdin: "pipe",
-			stdout: "pipe",
-			stderr: "pipe",
-		},
+	const { master, slave } = openPty(
+		process.stdout.rows ?? 24,
+		process.stdout.columns ?? 80,
 	);
+	const child = Bun.spawn([shell], {
+		cwd: process.cwd(),
+		env: { ...process.env, TERM: process.env.TERM ?? "xterm-256color" },
+		stdin: slave,
+		stdout: slave,
+		stderr: slave,
+	});
+	closeSync(slave);
+	const writeChild = (data: string) => {
+		writeSync(master, data);
+	};
+
+	// Restore the terminal and tear down children on any exit path — otherwise
+	// quitting leaves the parent terminal stuck in raw mode.
+	let cleaned = false;
+	const cleanup = () => {
+		if (cleaned) return;
+		cleaned = true;
+		try {
+			process.stdin.setRawMode?.(false);
+		} catch {}
+		brain.close();
+		child.kill();
+		try {
+			closeSync(master);
+		} catch {}
+	};
+	child.exited.then(() => {
+		cleanup();
+		process.exit(0);
+	});
+	process.on("exit", cleanup);
+	process.on("SIGINT", () => {
+		cleanup();
+		process.exit(0);
+	});
 
 	process.stdin.setRawMode?.(true);
 	process.stdin.resume();
-	pump(child.stdout, (data) => {
-		// Pass keystrokes straight through while a full-screen child (vim, less,
-		// ssh+TUI) owns the alternate screen — never route its input to the brain.
+
+	// Mirror the pty master to our stdout, watching for the child entering or
+	// leaving the alternate screen (vim, less, ssh+TUI) so we pass keystrokes
+	// straight through instead of routing them to the brain.
+	const readBuffer = Buffer.alloc(65536);
+	const onMaster = (err: Error | null, bytes: number) => {
+		if (err || bytes <= 0) {
+			cleanup();
+			process.exit(0);
+			return;
+		}
+		const data = readBuffer.toString("utf8", 0, bytes);
 		if (
 			data.includes("[?1049h") ||
 			data.includes("[?1047h") ||
@@ -58,40 +91,19 @@ export async function runOverlay() {
 		)
 			childActive = false;
 		output = (output + data).slice(-12000);
-		process.stdout.write(data);
-	});
-	pump(child.stderr, (data) => process.stderr.write(data));
-
-	// Restore the terminal and tear down children on any exit path — otherwise
-	// quitting leaves the parent terminal stuck in raw mode.
-	let cleaned = false;
-	const cleanup = () => {
-		if (cleaned) return;
-		cleaned = true;
-		try {
-			process.stdin.setRawMode?.(false);
-		} catch {}
-		brain.close();
-		child.kill();
+		process.stdout.write(Buffer.from(readBuffer.subarray(0, bytes)));
+		read(master, readBuffer, 0, readBuffer.length, null, onMaster);
 	};
-	child.exited.then(() => {
-		cleanup();
-		process.exit(0);
-	});
-	process.on("exit", cleanup);
-	process.on("SIGINT", () => {
-		cleanup();
-		process.exit(0);
-	});
+	read(master, readBuffer, 0, readBuffer.length, null, onMaster);
 
 	process.stdin.on("data", async (chunk: Buffer) => {
 		const text = chunk.toString("utf8");
 		if (text === "\u0003" || text === "\u0004" || text === "\u001a") {
-			child.stdin.write(text);
+			writeChild(text);
 			return;
 		}
 		if (text === "\r") {
-			if (handleInternalCommand(line, jobs, child.stdin)) {
+			if (handleInternalCommand(line, jobs, writeChild)) {
 				line = "";
 				return;
 			}
@@ -114,7 +126,7 @@ export async function runOverlay() {
 				),
 			);
 			if (decision.kind === "intent") {
-				child.stdin.write("\u0015");
+				writeChild("\u0015");
 				process.stdout.write("\r\n");
 				const context = await buildContext(
 					{ cwd: process.cwd(), history, lastOutput: output },
@@ -159,7 +171,7 @@ export async function runOverlay() {
 								`⚠ dwim: review this command before running.\n`,
 							);
 						line = command;
-						child.stdin.write(line);
+						writeChild(line);
 					}
 					if (event.type === "error")
 						process.stdout.write(`dwim error: ${event.message}\n`);
@@ -167,24 +179,24 @@ export async function runOverlay() {
 				return;
 			}
 			line = "";
-			child.stdin.write("\r");
+			writeChild("\r");
 			await table.refresh();
 			return;
 		}
 		if (text === "\u007f") line = line.slice(0, -1);
 		else if (!text.startsWith("\u001b")) line += text;
-		child.stdin.write(text);
+		writeChild(text);
 	});
 }
 
 function handleInternalCommand(
 	line: string,
 	jobs: AgentJobs,
-	stdin: { write: (data: string) => void },
+	write: (data: string) => void,
 ) {
 	const trimmed = line.trim();
 	if (trimmed === "dwim jobs") {
-		stdin.write("\u0015");
+		write("\u0015");
 		process.stdout.write(
 			`\r\n${jobs
 				.list()
@@ -195,20 +207,12 @@ function handleInternalCommand(
 	}
 	const match = trimmed.match(/^dwim fg (\d+)$/);
 	if (match) {
-		stdin.write("\u0015");
+		write("\u0015");
 		const job = jobs.get(Number(match[1]));
 		process.stdout.write(`\r\n${job?.output ?? "no such dwim job"}\n`);
 		return true;
 	}
 	return false;
-}
-
-async function pump(
-	stream: ReadableStream<Uint8Array>,
-	write: (data: string) => void,
-) {
-	const decoder = new TextDecoder();
-	for await (const chunk of stream) write(decoder.decode(chunk));
 }
 
 async function applyPostProcess(
