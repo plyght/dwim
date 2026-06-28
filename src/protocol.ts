@@ -4,6 +4,7 @@ export type ShellContext = {
 	lastOutput: string;
 	lastExitCode?: number;
 	memory?: string[];
+	conversation?: { role: "user" | "assistant"; text: string }[];
 };
 
 export type BrainRequest = {

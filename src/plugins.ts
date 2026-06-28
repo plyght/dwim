@@ -43,6 +43,10 @@ export async function buildContext(
 		lastOutput: redact(context.lastOutput).slice(-8000),
 		lastExitCode: context.lastExitCode,
 		memory,
+		conversation: (context.conversation ?? []).slice(-8).map((turn) => ({
+			role: turn.role,
+			text: redact(turn.text),
+		})),
 	};
 }
 

@@ -3,6 +3,7 @@ export type AgentJob = {
 	prompt: string;
 	status: "running" | "done" | "error";
 	output: string;
+	proposal?: string;
 };
 
 export class AgentJobs {
@@ -23,6 +24,11 @@ export class AgentJobs {
 	append(id: number, output: string) {
 		const job = this.get(id);
 		if (job) job.output += output;
+	}
+
+	propose(id: number, command: string) {
+		const job = this.get(id);
+		if (job) job.proposal = command;
 	}
 
 	finish(id: number, status: "done" | "error" = "done") {

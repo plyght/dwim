@@ -69,7 +69,19 @@ const ENGLISH = new Set([
 	"without",
 	"working",
 ]);
-const AGENT_VERBS = new Set(["fix", "go", "get", "make"]);
+const AGENT_VERBS = new Set([
+	"build",
+	"debug",
+	"fix",
+	"go",
+	"implement",
+	"investigate",
+	"make",
+	"repair",
+	"set",
+	"setup",
+	"update",
+]);
 
 export function routeLine(
 	line: string,
@@ -167,7 +179,21 @@ function parsesLikeCommand(
 }
 
 function depth(first: string, rest: string[]): "oneshot" | "agent" | "auto" {
-	return AGENT_VERBS.has(first.toLowerCase()) && rest.length > 0
-		? "agent"
-		: "auto";
+	const words = [first, ...rest].map((token) => token.toLowerCase());
+	if (AGENT_VERBS.has(first.toLowerCase()) && rest.length > 0) return "agent";
+	if (
+		words.some((word) =>
+			[
+				"broken",
+				"failing",
+				"fails",
+				"failed",
+				"error",
+				"errors",
+				"working",
+			].includes(word),
+		)
+	)
+		return "agent";
+	return "auto";
 }

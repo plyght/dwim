@@ -47,7 +47,13 @@ export function createBrainClient(options: BrainClientOptions = {}): Brain {
 				if (line.trim()) route(line);
 			}
 		}
-		for (const handler of pending.values()) handler.resolve();
+		for (const handler of pending.values()) {
+			handler.emit({
+				type: "error",
+				message: "brain sidecar closed before responding",
+			});
+			handler.resolve();
+		}
 		pending.clear();
 	})();
 

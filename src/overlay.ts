@@ -1,20 +1,44 @@
 import { closeSync, read, writeSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import { createBrainClient } from "./brain-client";
 import { loadConfig, needsConfirm } from "./config";
+import { type IpcConn, type IpcRequest, serveIpc } from "./ipc";
 import { AgentJobs } from "./jobs";
 import { buildContext, loadPlugins } from "./plugins";
 import { openPty } from "./pty";
 import { createResolutionTable } from "./resolution";
 import { routeLine } from "./router";
 
+const INTEGRATION_SOURCE = await Bun.file(
+	new URL("./integration.fish", import.meta.url),
+).text();
+
 export async function runOverlay() {
 	const shell = Bun.env.SHELL ?? "/bin/sh";
+	const shellName = basename(shell);
 	if (!Bun.which("script")) {
 		console.error(
 			"dwiw: the 'script' command is required to wrap your shell but was not found.",
 		);
 		process.exit(1);
 	}
+	if (shellName !== "fish") {
+		console.error(
+			`dwiw: only fish is supported right now (your shell is ${shellName}). Starting a plain wrapped shell without AI routing.`,
+		);
+	}
+
+	const dwiwDir = join(Bun.env.HOME ?? ".", ".dwiw");
+	await mkdir(dwiwDir, { recursive: true });
+	const integrationPath = join(dwiwDir, "integration.fish");
+	await writeFile(integrationPath, INTEGRATION_SOURCE);
+	const sockPath = join(dwiwDir, `sock-${process.pid}.sock`);
+	try {
+		const { unlinkSync } = await import("node:fs");
+		unlinkSync(sockPath);
+	} catch {}
+
 	const table = await createResolutionTable();
 	const config = await loadConfig();
 	const brain = createBrainClient({
@@ -24,10 +48,172 @@ export async function runOverlay() {
 	const plugins = await loadPlugins(config.plugins);
 	const jobs = new AgentJobs();
 	const history: string[] = [];
-	let line = "";
-	let output = "";
-	let childActive = false;
-	let pendingRun: string | null = null;
+	const conversation: { role: "user" | "assistant"; text: string }[] = [];
+	let lastOutput = "";
+	let lastExitCode: number | undefined;
+
+	// The router and brain live here; the in-shell binding asks over the socket.
+	async function handleAsk(req: { line: string; cwd: string }, conn: IpcConn) {
+		const decision = routeLine(req.line, table, false);
+		const message = decision.kind === "intent" ? decision.line : req.line;
+		const mode = decision.kind === "intent" ? decision.mode : "auto";
+		const context = await buildContext(
+			{ cwd: req.cwd, history, lastOutput, lastExitCode, conversation },
+			plugins,
+		);
+		const request = {
+			type: "prompt" as const,
+			message,
+			context,
+			mode,
+		};
+		await Promise.all(
+			plugins.map((plugin) =>
+				plugin.observeShellEvent?.({ type: "command", value: message }),
+			),
+		);
+		if (mode === "agent") {
+			const job = jobs.start(message);
+			conn.send({
+				out: `[dwiw ${job.id}] started — run dwiw fg ${job.id} when ready\n`,
+			});
+			conn.send({ result: { action: "chat" } });
+			conn.close();
+			brain
+				.ask(request, async (event) => {
+					if (event.type === "text") jobs.append(job.id, event.text);
+					if (event.type === "agent_action")
+						jobs.append(
+							job.id,
+							`[${event.label}]${event.detail ? ` ${event.detail}` : ""}\n`,
+						);
+					if (event.type === "proposal") {
+						jobs.propose(job.id, event.command);
+						jobs.append(job.id, `${event.command}\n`);
+					}
+					if (event.type === "error") jobs.finish(job.id, "error");
+					if (event.type === "done") jobs.finish(job.id);
+				})
+				.catch(() => jobs.finish(job.id, "error"));
+			return;
+		}
+		let proposal: string | undefined;
+		let rawProposal: string | undefined;
+		let chatText = "";
+		let settled = false;
+		const startedAt = Date.now();
+		const eventLog: string[] = [];
+		const debug = (note: string) => {
+			if (!Bun.env.DWIW_DEBUG) return;
+			void writeFile(
+				join(dwiwDir, "debug.log"),
+				`${new Date().toISOString()} ${note}\n`,
+				{ flag: "a" },
+			).catch(() => {});
+		};
+		const finalize = () => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			debug(
+				`ask "${message}" mode=${mode} ms=${Date.now() - startedAt} events=[${eventLog.join(",")}] proposal=${JSON.stringify(proposal)} chatLen=${chatText.length}`,
+			);
+			conversation.push({ role: "user", text: message });
+			if (proposal?.trim()) {
+				conversation.push({ role: "assistant", text: `proposed: ${proposal}` });
+				const guard = needsConfirm(proposal, config);
+				if (guard)
+					conn.send({ out: "⚠ dwiw: review this command before running.\n" });
+				conn.send({
+					result: {
+						action: config.autoRun && !guard ? "run" : "edit",
+						command: proposal,
+					},
+				});
+			} else if (chatText.trim()) {
+				conversation.push({ role: "assistant", text: chatText.trim() });
+				conn.send({ result: { action: "chat" } });
+			} else {
+				conn.send({ out: "dwiw: no response from the model.\n" });
+				conn.send({ result: { action: "chat" } });
+			}
+			conn.close();
+		};
+		const timer = setTimeout(() => {
+			if (settled) return;
+			settled = true;
+			debug(`ask "${message}" TIMEOUT events=[${eventLog.join(",")}]`);
+			conn.send({ out: "dwiw: the model took too long; try again.\n" });
+			conn.send({ result: { action: "chat" } });
+			conn.close();
+		}, 45000);
+		try {
+			await brain.ask(request, async (event) => {
+				if (settled) return;
+				eventLog.push(event.type);
+				if (event.type === "text") {
+					chatText += event.text;
+					conn.send({ out: event.text });
+				}
+				if (event.type === "agent_action")
+					conn.send({
+						out: `[${event.label}]${event.detail ? ` ${event.detail}` : ""}\n`,
+					});
+				if (event.type === "proposal") rawProposal = event.command;
+				if (event.type === "error")
+					conn.send({ out: `dwiw error: ${event.message}\n` });
+			});
+			if (rawProposal) proposal = await applyPostProcess(rawProposal, plugins);
+			finalize();
+		} catch (error) {
+			if (!settled) {
+				debug(`ask "${message}" THREW ${String(error)}`);
+				conn.send({
+					out: `dwiw error: ${error instanceof Error ? error.message : String(error)}\n`,
+				});
+				settled = true;
+				clearTimeout(timer);
+				conn.send({ result: { action: "chat" } });
+				conn.close();
+			}
+		}
+	}
+
+	const server = serveIpc(sockPath, (request: IpcRequest, conn) => {
+		if (request.op === "route") {
+			const decision = routeLine(request.line, table, false);
+			if (decision.kind === "intent" || decision.kind === "command")
+				history.push(decision.line);
+			const kind = decision.kind === "passthrough" ? "command" : decision.kind;
+			conn.send({ kind, line: decision.line });
+			conn.close();
+			return;
+		}
+		if (request.op === "ask") {
+			void handleAsk(request, conn);
+			return;
+		}
+		if (request.op === "jobs") {
+			conn.send({
+				jobs: jobs.list().map((job) => ({
+					id: job.id,
+					status: job.status,
+					prompt: job.prompt,
+				})),
+			});
+			conn.close();
+			return;
+		}
+		if (request.op === "fg") {
+			const job = jobs.get(request.id);
+			conn.send(
+				job
+					? { output: job.output, proposal: job.proposal }
+					: { output: "no such dwiw job" },
+			);
+			conn.close();
+		}
+	});
 
 	const { master, slave } = openPty(
 		process.stdout.rows ?? 24,
@@ -37,25 +223,41 @@ export async function runOverlay() {
 	// (setsid + login_tty): job control, tcsetpgrp, and multiplexers like
 	// herdr/tmux all need this. We hand `script` the pty slave — a genuine tty,
 	// so its tcgetattr succeeds where a pipe failed — and drive the master end.
-	const child = Bun.spawn(
+	// Load the integration via fish's --init-command so the Enter binding is
+	// installed *before* the first prompt and without echoing a visible `source`
+	// line. Non-fish shells just get a plain wrapped shell.
+	const initCmd = `source '${integrationPath}'`;
+	const fishInit = shellName === "fish";
+	const argv =
 		process.platform === "linux"
-			? ["script", "-qfc", shell, "/dev/null"]
-			: ["script", "-q", "/dev/null", shell],
-		{
-			cwd: process.cwd(),
-			env: { ...process.env, TERM: process.env.TERM ?? "xterm-256color" },
-			stdin: slave,
-			stdout: slave,
-			stderr: slave,
+			? [
+					"script",
+					"-qfc",
+					fishInit ? `${shell} --init-command "${initCmd}"` : shell,
+					"/dev/null",
+				]
+			: fishInit
+				? ["script", "-q", "/dev/null", shell, "--init-command", initCmd]
+				: ["script", "-q", "/dev/null", shell];
+	const child = Bun.spawn(argv, {
+		cwd: process.cwd(),
+		env: {
+			...process.env,
+			TERM: process.env.TERM ?? "xterm-256color",
+			DWIW_SOCK: sockPath,
+			DWIW_EXEC: process.execPath,
+			DWIW_SCRIPT: Bun.argv[1]?.endsWith(".ts") ? resolve(Bun.argv[1]) : "",
 		},
-	);
+		stdin: slave,
+		stdout: slave,
+		stderr: slave,
+	});
 	closeSync(slave);
-	const writeChild = (data: string) => {
-		writeSync(master, data);
+	const writeChild = (data: string | Buffer) => {
+		if (typeof data === "string") writeSync(master, data);
+		else writeSync(master, data);
 	};
 
-	// Restore the terminal and tear down children on any exit path — otherwise
-	// quitting leaves the parent terminal stuck in raw mode.
 	let cleaned = false;
 	const cleanup = () => {
 		if (cleaned) return;
@@ -64,6 +266,11 @@ export async function runOverlay() {
 			process.stdin.setRawMode?.(false);
 		} catch {}
 		brain.close();
+		server.stop();
+		try {
+			const { unlinkSync } = require("node:fs");
+			unlinkSync(sockPath);
+		} catch {}
 		child.kill();
 		try {
 			closeSync(master);
@@ -82,9 +289,8 @@ export async function runOverlay() {
 	process.stdin.setRawMode?.(true);
 	process.stdin.resume();
 
-	// Mirror the pty master to our stdout, watching for the child entering or
-	// leaving the alternate screen (vim, less, ssh+TUI) so we pass keystrokes
-	// straight through instead of routing them to the brain.
+	// Mirror the pty master to stdout, stripping the OSC 133 prompt markers our
+	// fish integration emits while recording the prompt state and exit codes.
 	const readBuffer = Buffer.alloc(65536);
 	const onMaster = (err: Error | null, bytes: number) => {
 		if (err || bytes <= 0) {
@@ -93,148 +299,32 @@ export async function runOverlay() {
 			return;
 		}
 		const data = readBuffer.toString("utf8", 0, bytes);
-		if (
-			data.includes("[?1049h") ||
-			data.includes("[?1047h") ||
-			data.includes("[?47h")
-		)
-			childActive = true;
-		if (
-			data.includes("[?1049l") ||
-			data.includes("[?1047l") ||
-			data.includes("[?47l")
-		)
-			childActive = false;
-		output = (output + data).slice(-12000);
-		process.stdout.write(Buffer.from(readBuffer.subarray(0, bytes)));
+		const marker = osc133Marker();
+		let match = marker.exec(data);
+		while (match) {
+			if (match[1] === "D" && match[2])
+				lastExitCode = Number(match[2].slice(1));
+			match = marker.exec(data);
+		}
+		const cleanedData = data.replace(marker, "");
+		lastOutput = (lastOutput + cleanedData).slice(-12000);
+		process.stdout.write(cleanedData);
 		read(master, readBuffer, 0, readBuffer.length, null, onMaster);
 	};
 	read(master, readBuffer, 0, readBuffer.length, null, onMaster);
 
-	process.stdin.on("data", async (chunk: Buffer) => {
-		const text = chunk.toString("utf8");
-		if (text === "\u0003" || text === "\u0004" || text === "\u001a") {
-			writeChild(text);
-			return;
-		}
-		if (text === "\r") {
-			if (handleInternalCommand(line, jobs, writeChild)) {
-				line = "";
-				return;
-			}
-			const decision = routeLine(line, table, childActive);
-
-			// Ambiguous = resolves but reads like prose. Never auto-run, never send
-			// it to the brain. First Enter holds the line; a second Enter runs it.
-			if (decision.kind === "ambiguous" && pendingRun !== line) {
-				pendingRun = line;
-				process.stdout.write(
-					`\n⚠ dwiw: ambiguous — Enter again to run as a command, or edit the line.\n`,
-				);
-				return;
-			}
-			pendingRun = null;
-			history.push(line);
-			await Promise.all(
-				plugins.map((plugin) =>
-					plugin.observeShellEvent?.({ type: "command", value: line }),
-				),
-			);
-			if (decision.kind === "intent") {
-				writeChild("\u0015");
-				process.stdout.write("\r\n");
-				const context = await buildContext(
-					{ cwd: process.cwd(), history, lastOutput: output },
-					plugins,
-				);
-				const request = {
-					type: "prompt" as const,
-					message: decision.line,
-					context,
-					mode: decision.mode,
-				};
-				if (decision.mode === "agent") {
-					const job = jobs.start(decision.line);
-					line = "";
-					process.stdout.write(`[dwiw ${job.id}] started\n`);
-					brain
-						.ask(request, async (event) => {
-							if (event.type === "text") jobs.append(job.id, event.text);
-							if (event.type === "proposal") jobs.append(job.id, event.command);
-							if (event.type === "error") jobs.finish(job.id, "error");
-							if (event.type === "done") {
-								jobs.finish(job.id);
-								process.stdout.write(
-									`\n[dwiw ${job.id}] done; run dwiw fg ${job.id}\n`,
-								);
-							}
-						})
-						.catch((error) => {
-							jobs.finish(job.id, "error");
-							process.stdout.write(
-								`\n[dwiw ${job.id}] error: ${error instanceof Error ? error.message : String(error)}\n`,
-							);
-						});
-					return;
-				}
-				await brain.ask(request, async (event) => {
-					if (event.type === "text") process.stdout.write(event.text);
-					if (event.type === "proposal") {
-						const command = await applyPostProcess(event.command, plugins);
-						const guard = needsConfirm(command, config);
-						if (config.autoRun && !guard) {
-							// One Enter: generate AND run. No second keystroke.
-							line = "";
-							writeChild(`${command}\r`);
-						} else {
-							if (guard)
-								process.stdout.write(
-									`⚠ dwiw: review this command before running.\n`,
-								);
-							line = command;
-							writeChild(line);
-						}
-					}
-					if (event.type === "error")
-						process.stdout.write(`dwiw error: ${event.message}\n`);
-				});
-				return;
-			}
-			line = "";
-			writeChild("\r");
-			await table.refresh();
-			return;
-		}
-		if (text === "\u007f") line = line.slice(0, -1);
-		else if (!text.startsWith("\u001b")) line += text;
-		writeChild(text);
+	process.stdin.on("data", (chunk: Buffer) => {
+		writeChild(chunk);
 	});
 }
 
-function handleInternalCommand(
-	line: string,
-	jobs: AgentJobs,
-	write: (data: string) => void,
-) {
-	const trimmed = line.trim();
-	if (trimmed === "dwiw jobs") {
-		write("\u0015");
-		process.stdout.write(
-			`\r\n${jobs
-				.list()
-				.map((job) => `[${job.id}] ${job.status} ${job.prompt}`)
-				.join("\n")}\n`,
-		);
-		return true;
-	}
-	const match = trimmed.match(/^dwiw fg (\d+)$/);
-	if (match) {
-		write("\u0015");
-		const job = jobs.get(Number(match[1]));
-		process.stdout.write(`\r\n${job?.output ?? "no such dwiw job"}\n`);
-		return true;
-	}
-	return false;
+function osc133Marker() {
+	const esc = String.fromCharCode(27);
+	const bel = String.fromCharCode(7);
+	return new RegExp(
+		`${esc}\\]133;([A-D])(;[^${bel}${esc}]*)?(?:${bel}|${esc}\\\\)`,
+		"g",
+	);
 }
 
 async function applyPostProcess(
