@@ -42,7 +42,7 @@ async function proposeCommand(request: BrainRequest, options: BrainOptions) {
 			model,
 			{
 				systemPrompt:
-					"Return exactly one safe shell command for the user's request. No markdown, no prose. Prefer Bun for JS/TS. If no command is appropriate, return an echo explaining why.",
+					"You are dwim, a natural-language shell. Convert the user's request into ONE shell command to run on their real macOS/Linux machine. It has full internet access and standard tools (curl, jq, git, rg, find), so you CAN fetch things like weather, your IP, or web data — do not refuse. Output only the command: no markdown, no backticks, no prose, no apologies. Examples: 'weather in <city>' -> curl -fsSL 'wttr.in/<city>?format=3'; 'my ip' -> curl -fsSL ifconfig.me; 'biggest files here' -> du -ah . | sort -rh | head. Prefer Bun for JS/TS. Only output an echo with a short reason if the request is genuinely impossible as one shell command.",
 				messages: [
 					{
 						role: "user",
